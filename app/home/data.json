@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "header": "Executive Summary",
+    "type": "Section",
+    "status": "In Progress",
+    "target": "2",
+    "limit": "3",
+    "reviewer": "Assign reviewer"
+  },
+  {
+    "id": 2,
+    "header": "Technical Approach",
+    "type": "Section",
+    "status": "Done",
+    "target": "5",
+    "limit": "8",
+    "reviewer": "Eddie Lake"
+  },
+  {
+    "id": 3,
+    "header": "Management Plan",
+    "type": "Section",
+    "status": "In Progress",
+    "target": "4",
+    "limit": "6",
+    "reviewer": "Assign reviewer"
+  },
+  {
+    "id": 4,
+    "header": "Past Performance",
+    "type": "Section",
+    "status": "In Progress",
+    "target": "3",
+    "limit": "5",
+    "reviewer": "Assign reviewer"
+  },
+  {
+    "id": 5,
+    "header": "Key Personnel",
+    "type": "Section",
+    "status": "Done",
+    "target": "2",
+    "limit": "4",
+    "reviewer": "Jamik Tashpulatov"
+  },
+  {
+    "id": 6,
+    "header": "Pricing",
+    "type": "Section",
+    "status": "In Progress",
+    "target": "1",
+    "limit": "2",
+    "reviewer": "Assign reviewer"
+  }
+]

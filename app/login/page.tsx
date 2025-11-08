@@ -10,18 +10,23 @@ export default function LoginPage() {
   React.useEffect(() => {
     const token = apiClient.getAccessToken()
     if (!token) return
-    // Se já autenticado no client, garante cookie httpOnly e redireciona
+    // Valida token no backend antes de redirecionar para evitar loops
     const nextParam = (() => {
       try {
         const url = new URL(window.location.href)
-        return url.searchParams.get("next") || "/home"
+        // Middleware envia 'redirect', mas também aceitamos 'next' por compatibilidade
+        return url.searchParams.get("redirect") || url.searchParams.get("next") || "/home"
       } catch {
         return "/home"
       }
     })()
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || ""
+    const API_URL = (process.env.NEXT_PUBLIC_API_URL || (typeof window!== 'undefined' ? window.location.origin : ''))
     const postCookie = async () => {
+      let valid = false
       try {
+        // Primeiro checa o token com o backend
+        await apiClient.me()
+        valid = true
         if (API_URL) {
           await fetch(`${API_URL}/auth/token-cookie`, {
             method: "POST",
@@ -30,8 +35,21 @@ export default function LoginPage() {
             body: JSON.stringify({ token, remember: true }),
           }).catch(() => {})
         }
-      } catch {}
-      router.replace(nextParam)
+      } catch {
+        // Token inválido: limpa e permanece no login (sem redirecionar)
+        try { apiClient.logout() } catch {}
+      }
+      if (!valid) return
+      // Evita replace desnecessário se já estamos no destino
+      try {
+        const curr = new URL(window.location.href)
+        const dest = new URL(nextParam, curr.origin)
+        if (curr.pathname + curr.search !== dest.pathname + dest.search) {
+          router.replace(nextParam)
+        }
+      } catch {
+        router.replace(nextParam)
+      }
     }
     postCookie()
   }, [router])

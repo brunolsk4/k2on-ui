@@ -136,10 +136,8 @@ export function LoginForm({
               variant="outline"
               type="button"
               onClick={() => {
-                const clientId = "600017068006-oj4k6rplf6du4425r56ag6gimljc24ed.apps.googleusercontent.com"
-                const redirectUri = `${apiBase}/auth/google/callback`
-                const scopes = ["openid","email","profile"].join(" ")
-                const url = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`
+                // Inicia fluxo pelo backend para não depender de NEXT_PUBLIC_GOOGLE_CLIENT_ID
+                const url = `${apiBase.replace(/\/$/, '')}/auth/google/start`
                 openExternal(url)
               }}
             >

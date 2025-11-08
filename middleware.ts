@@ -19,18 +19,13 @@ export function middleware(req: NextRequest) {
 
   const publicRegex = new RegExp(`^${bp}(\/)?(login|signup|forgot-password|reset-password|auth-success|otp)$`)
   const isPublic = publicRegex.test(pathname) || isAsset(pathname, bp)
-  const token = req.cookies.get('k2on_token')?.value
+  // Não forçar redirect baseado em cookie aqui. Confiamos no guard do cliente (AuthGate/Protected)
+  // para evitar loops e lidar com estados de cookie/localStorage diferentes entre navegadores.
 
-  if (!token && !isPublic) {
-    const url = new URL(`${bp}/login`, origin)
-    url.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  // If already authenticated and visiting login/signup, send to home
-  if (token && (new RegExp(`^${bp}/(login|signup)$`).test(pathname))) {
-    return NextResponse.redirect(new URL(`${bp}/home`, origin))
-  }
+  // Importante: não redirecionar forçadamente usuários com cookie para /home.
+  // O cookie pode estar expirado/inválido e isso causaria loop entre /home (client
+  // detecta inválido e manda para /login) e aqui (que manda de volta para /home).
+  // Em vez disso, deixamos /login e /signup acessíveis mesmo com cookie presente.
 
   return NextResponse.next()
 }

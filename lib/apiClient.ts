@@ -26,7 +26,14 @@ export type AuthTokens = {
   refreshToken?: string;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+// Resolve base da API em runtime: usa NEXT_PUBLIC_API_URL quando existir,
+// senão cai para window.location.origin (mesmo host do app Next).
+const BUILD_API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+function getApiBase(): string {
+  if (BUILD_API_URL) return BUILD_API_URL;
+  if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+  return "";
+}
 
 function invariant(cond: unknown, message: string): asserts cond {
   if (!cond) throw new Error(message);
@@ -101,8 +108,9 @@ async function request<T>(
     signal?: AbortSignal;
   } = {}
 ): Promise<T> {
-  invariant(API_URL, "NEXT_PUBLIC_API_URL não configurada");
-  const url = `${API_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  const base = getApiBase();
+  invariant(base, "API base não configurada");
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   if (opts.withAuth) {
@@ -186,8 +194,9 @@ export const apiClient = {
 
     // Espehlo seguro em cookie httpOnly via servidor Express
     try {
-      if (typeof window !== "undefined" && API_URL) {
-        await fetch(`${API_URL}/auth/token-cookie`, {
+      const base = getApiBase();
+      if (typeof window !== "undefined" && base) {
+        await fetch(`${base}/auth/token-cookie`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -237,8 +246,9 @@ export const apiClient = {
     setAccessToken(null);
     setRefreshToken(null);
     try {
-      if (typeof window !== "undefined" && API_URL) {
-        fetch(`${API_URL}/auth/clear-cookie`, { method: "POST", credentials: "include" }).catch(() => {});
+      const base = getApiBase();
+      if (typeof window !== "undefined" && base) {
+        fetch(`${base}/auth/clear-cookie`, { method: "POST", credentials: "include" }).catch(() => {});
       }
     } catch {}
   },

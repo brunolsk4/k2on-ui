@@ -10,11 +10,15 @@ const BASE = "";
 export default function Protected({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [ok, setOk] = React.useState(false)
+  const redirectedRef = React.useRef(false)
 
   React.useEffect(() => {
     const token = apiClient.getAccessToken()
     if (!token) {
-      router.replace(`/login`)
+      if (!redirectedRef.current) {
+        redirectedRef.current = true
+        router.replace(`/login`)
+      }
       return
     }
     let cancelled = false
@@ -24,7 +28,7 @@ export default function Protected({ children }: { children: React.ReactNode }) {
         if (!cancelled) setOk(true)
         // Registrar atividade diária após validar token no backend
         try {
-          const API = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || ''
+          const API = (process.env.NEXT_PUBLIC_API_URL || (typeof window!=='undefined'? window.location.origin : '')).replace(/\/$/, '') || ''
           if (API && token) {
             fetch(`${API}/api/atividade/ping`, {
               method: 'POST',
@@ -34,7 +38,10 @@ export default function Protected({ children }: { children: React.ReactNode }) {
           }
         } catch {}
       } catch {
-        if (!cancelled) router.replace(`/login`)
+        if (!cancelled && !redirectedRef.current) {
+          redirectedRef.current = true
+          router.replace(`/login`)
+        }
       }
     })()
     return () => { cancelled = true }

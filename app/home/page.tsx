@@ -8,7 +8,6 @@ import { ProjectsSection } from "@/components/new-home/ProjectsSection"
 import { DashboardsSection } from "@/components/new-home/DashboardsSection"
 import { IntegrationsSection } from "@/components/new-home/IntegrationsSection"
 import apiClient from "@/lib/apiClient"
-import Protected from "@/components/protected"
 
 function Greeting() {
   const [firstName, setFirstName] = React.useState<string>("Usuário")
@@ -31,24 +30,22 @@ function Greeting() {
 
 export default function NewHomePage() {
   return (
-    <Protected>
-      <SidebarProvider style={{ "--sidebar-width": "calc(var(--spacing) * 72)", "--header-height": "calc(var(--spacing) * 12)" } as React.CSSProperties}>
-        <AppSidebar variant="inset" />
-        <SidebarInset>
-          <SiteHeader title="Home" />
-          <div className="flex flex-1 flex-col">
-            <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-                <div className="px-4 lg:px-6"><Greeting /></div>
-                <StatsCards />
-                <div className="px-4 lg:px-6"><ProjectsSection /></div>
-                <div className="px-4 lg:px-6"><DashboardsSection /></div>
-                <div className="px-4 lg:px-6"><IntegrationsSection /></div>
-              </div>
+    <SidebarProvider style={{ "--sidebar-width": "calc(var(--spacing) * 72)", "--header-height": "calc(var(--spacing) * 12)" } as React.CSSProperties}>
+      <AppSidebar variant="inset" />
+      <SidebarInset>
+        <SiteHeader title="Home" />
+        <div className="flex flex-1 flex-col">
+          <div className="@container/main flex flex-1 flex-col gap-2">
+            <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+              <div className="px-4 lg:px-6"><Greeting /></div>
+              <StatsCards />
+              <div className="px-4 lg:px-6"><ProjectsSection /></div>
+              <div className="px-4 lg:px-6"><DashboardsSection /></div>
+              <div className="px-4 lg:px-6"><IntegrationsSection /></div>
             </div>
           </div>
-        </SidebarInset>
-      </SidebarProvider>
-    </Protected>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

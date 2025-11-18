@@ -37,7 +37,7 @@ export default function WizardStepStatus(){
         setEtapas(Array.isArray(e)?e:[])
       } catch {}
       try {
-        const s:any = await apiClient.request(`/api/wizard/status?projetoId=${projetoId}`, { withAuth: true })
+        const s:any = await apiClient.request(`/api/processos?projetoId=${projetoId}`, { withAuth: true })
         if (s?.status === 'concluido') { setDone(true) }
       } catch {}
       t = setTimeout(tick, 1500)

@@ -1,18 +1,33 @@
-const MCP_URL = (process.env.MCP_URL || "http://localhost:4000/mcp").replace(/\/$/, "");
-const CLIENT_INFO = { name: "k2on-ui-mcp", version: "0.1.0" } as const;
+// @ts-nocheck
+import fs from "node:fs";
+import path from "node:path";
+
+const BASE_URL = (process.env.MCP_META_URL || "http://127.0.0.1:4001/mcp").replace(/\/$/, "");
+const ENDPOINTS = {
+  initialize: `${BASE_URL}/initialize`,
+  stream: `${BASE_URL}/stream`,
+  toolCall: `${BASE_URL}/tool-call`,
+  session: `${BASE_URL}/session`
+};
+
+const CLIENT_INFO = { name: "k2on-ui", version: "1.0.0" };
 const TARGET_PROTOCOL_VERSION = "2025-06-18";
 
-let sessionId: string | null = null;
-let negotiatedProtocol: string | null = null;
+let sessionId = null;
+let negotiatedProtocol = null;
 let requestCounter = 0;
-let connectPromise: Promise<void> | null = null;
-let sseController: AbortController | null = null;
+let connectPromise = null;
+let sseController = null;
 let sseReaderActive = false;
-let lastKnownSessionId: string | null = null;
+let lastKnownSessionId = null;
+
+/* ============================
+   SESSION HELPERS
+============================ */
 
 function resetSession() {
   if (sessionId) {
-    console.warn(`[MCP CLIENT] Resetting session. Previous sessionId=${sessionId}`);
+    console.warn(`[MCP CLIENT] Resetando sessão ${sessionId}`);
     lastKnownSessionId = sessionId;
   }
   sessionId = null;
@@ -24,67 +39,72 @@ function resetSession() {
   sseReaderActive = false;
 }
 
-function buildRequestId(prefix: string) {
+function buildRequestId(prefix) {
   requestCounter += 1;
   return `${prefix}-${Date.now()}-${requestCounter}`;
 }
 
+/* ============================
+   SSE STREAM
+============================ */
+
 async function startSseStream() {
   if (!sessionId || sseReaderActive) return;
+
   const controller = new AbortController();
   sseController = controller;
-  const headers: Record<string, string> = {
+
+  const headers = {
     Accept: "text/event-stream",
     "Cache-Control": "no-cache",
     "mcp-session-id": sessionId
   };
-  if (negotiatedProtocol) headers["mcp-protocol-version"] = negotiatedProtocol;
 
-  const response = await fetch(MCP_URL, {
+  if (negotiatedProtocol) {
+    headers["mcp-protocol-version"] = negotiatedProtocol;
+  }
+
+  const response = await fetch(ENDPOINTS.stream, {
     method: "GET",
     headers,
     signal: controller.signal
   });
+
   if (!response.ok) {
     sseController = null;
     throw new Error(`Falha ao abrir SSE (HTTP ${response.status})`);
   }
+
   sseReaderActive = true;
   const reader = response.body?.getReader();
+
   (async () => {
     try {
-      console.log("[MCP CLIENT] SSE stream aberto. Começando leitura…");
       if (reader) {
         while (true) {
           const { done } = await reader.read();
           if (done) break;
         }
       }
-    } catch (error) {
-      console.warn("SSE stream encerrado", error);
+    } catch (err) {
+      console.warn("[MCP CLIENT] SSE encerrado", err);
     } finally {
       sseReaderActive = false;
       if (sseController === controller) {
         sseController = null;
       }
-      sessionId = null;
-      negotiatedProtocol = null;
     }
-  })().catch(() => {
-    sseReaderActive = false;
-    sessionId = null;
-    negotiatedProtocol = null;
-    if (sseController === controller) {
-      sseController = null;
-    }
-  });
+  })();
 }
 
+/* ============================
+   INITIALIZE SESSION
+============================ */
+
 async function initializeSession() {
-  const id = `init-${++requestCounter}`;
   const payload = {
     jsonrpc: "2.0",
-    id,
+    id: buildRequestId("init"),
     method: "initialize",
     params: {
       protocolVersion: TARGET_PROTOCOL_VERSION,
@@ -92,7 +112,8 @@ async function initializeSession() {
       clientInfo: CLIENT_INFO
     }
   };
-  const response = await fetch(MCP_URL, {
+
+  const response = await fetch(ENDPOINTS.initialize, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -101,188 +122,145 @@ async function initializeSession() {
     body: JSON.stringify(payload)
   });
 
-  let data: any = null;
-  if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    try {
-      const parsed = JSON.parse(text);
-      raiseMcpError(parsed?.error ?? { message: text, code: -32000 });
-    } catch {
-      throw new Error(`Falha ao inicializar MCP (${response.status}): ${text}`);
+  const raw = await response.text();
+  let data = {};
+
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(`Resposta inválida do MCP: ${raw}`);
+  }
+
+  if (!response.ok || data?.error) {
+    const err = data?.error || { message: raw, code: response.status };
+    const msg = (err.message || "").toLowerCase();
+
+    if (err.code === -32600 || msg.includes("already initialized")) {
+      console.warn("[MCP CLIENT] MCP já inicializado — reaproveitando sessão");
+      if (!sessionId && lastKnownSessionId) sessionId = lastKnownSessionId;
+      if (!negotiatedProtocol) negotiatedProtocol = TARGET_PROTOCOL_VERSION;
+      if (sessionId && !sseReaderActive) startSseStream().catch(() => {});
+      return;
     }
-  } else {
-    data = await response.json();
-    if (data?.error) {
-      raiseMcpError(data.error);
-    }
+
+    throw new Error(err.message || "Erro ao inicializar MCP");
   }
 
   const sid = response.headers.get("mcp-session-id");
   if (!sid) {
     throw new Error("MCP não retornou mcp-session-id");
   }
+
   sessionId = sid;
   lastKnownSessionId = sid;
-  negotiatedProtocol = data?.result?.protocolVersion ?? TARGET_PROTOCOL_VERSION;
-  console.log(`[MCP CLIENT] Sessão inicializada: sessionId=${sessionId}, protocol=${negotiatedProtocol}`);
-  await startSseStream().catch(() => {
-    /* SSE é opcional para fluxo síncrono; continuamos mesmo se falhar */
-  });
+  negotiatedProtocol = data?.result?.protocolVersion || TARGET_PROTOCOL_VERSION;
+
+  await startSseStream();
 }
 
 async function ensureSession() {
   if (sessionId && negotiatedProtocol) return;
+
   if (!connectPromise) {
     connectPromise = (async () => {
-      console.log("[MCP CLIENT] ensureSession: iniciando fluxo de conexão");
       try {
         await initializeSession();
-      } catch (error: any) {
-        if (isSessionAlreadyInitializedError(error)) {
-          console.warn("[MCP CLIENT] Servidor já inicializado. Tentando reiniciar sessão…");
-          await deleteSession();
-          await initializeSession();
-        } else {
-          throw error;
-        }
-      }
-    })()
-      .catch((error) => {
+      } catch (err) {
         resetSession();
-        throw error;
-      })
-      .finally(() => {
-        connectPromise = null;
-      });
+        throw err;
+      }
+    })().finally(() => {
+      connectPromise = null;
+    });
   }
+
   return connectPromise;
 }
 
-async function sendRpc(payload: Record<string, unknown>) {
+/* ============================
+   TOOL CALL RPC
+============================ */
+
+async function sendRpc(payload) {
   if (!sessionId) throw new Error("Sessão MCP indisponível");
-  const headers: Record<string, string> = {
+
+  const headers = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
     "mcp-session-id": sessionId
   };
-  if (negotiatedProtocol) headers["mcp-protocol-version"] = negotiatedProtocol;
+
+  if (negotiatedProtocol) {
+    headers["mcp-protocol-version"] = negotiatedProtocol;
+  }
+
+  const response = await fetch(ENDPOINTS.toolCall, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  const raw = await response.text();
+  let json = {};
 
   try {
-    console.log(`[MCP CLIENT] sendRpc -> id=${String(payload.id)} usando sessionId=${sessionId}`);
-    const response = await fetch(MCP_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText);
-      throw new Error(`Erro HTTP MCP ${response.status}: ${text}`);
-    }
-    return response.json();
-  } catch (error) {
-    const err = error as any;
-    if (isSessionError(err)) {
-      console.warn(`[MCP CLIENT] sendRpc detectou erro de sessão: ${err?.message}`);
-      await deleteSession();
-    }
-    throw error;
+    json = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(`Resposta inválida do MCP: ${raw}`);
   }
+
+  if (!response.ok || json?.error) {
+    const err = json?.error || { message: raw, code: response.status };
+    const e = new Error(err.message || "Erro desconhecido");
+    e.code = err.code;
+    throw e;
+  }
+
+  return json;
 }
 
-function isSessionError(error: any) {
-  if (!error) return false;
-  const message = String(error.message || "").toLowerCase();
-  if (message.includes("not initialized") || message.includes("session")) return true;
-  return isSessionAlreadyInitializedError(error);
-}
+/* ============================
+   PUBLIC API — GET TOOLS
+============================ */
 
-function isSessionAlreadyInitializedError(error: any) {
-  if (!error) return false;
-  const message = String(error.message || "").toLowerCase();
-  return message.includes("already initialized") || error.code === -32600;
-}
+let metaToolsCache = null;
 
-async function deleteSession() {
-  const targetSession = sessionId ?? lastKnownSessionId;
-  if (!targetSession) {
-    console.warn("[MCP CLIENT] deleteSession chamado sem sessionId conhecido");
-    resetSession();
-    lastKnownSessionId = null;
-    return;
-  }
-  try {
-    console.log(`[MCP CLIENT] deleteSession -> enviando DELETE para sessão ${targetSession}`);
-    const headers: Record<string, string> = {
-      Accept: "application/json, text/event-stream",
-      "mcp-session-id": targetSession
-    };
-    if (negotiatedProtocol) headers["mcp-protocol-version"] = negotiatedProtocol;
-    await fetch(MCP_URL, { method: "DELETE", headers }).catch(() => {});
-  } finally {
-    resetSession();
-    lastKnownSessionId = null;
-  }
-}
-
-export const metaTools = [
-  {
-    name: "meta_getPages",
-    description: "Lista as páginas Meta Ads associadas ao token fornecido.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    }
-  },
-  {
-    name: "meta_getForms",
-    description: "Retorna os lead forms pertencentes a uma página Meta Ads.",
-    parameters: {
-      type: "object",
-      properties: {
-        pageId: { type: "string", description: "ID da página Meta Ads." }
-      },
-      required: ["pageId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "meta_getLeads",
-    description: "Busca leads capturados por um formulário de lead do Meta Ads.",
-    parameters: {
-      type: "object",
-      properties: {
-        formId: { type: "string", description: "ID do lead form." },
-        limit: { type: "number", description: "Quantidade máxima de leads." }
-      },
-      required: ["formId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "meta_sendWhatsApp",
-    description: "Dispara mensagem via WhatsApp Business Cloud API.",
-    parameters: {
-      type: "object",
-      properties: {
-        wabaId: { type: "string", description: "ID do WhatsApp Business Account." },
-        phone: { type: "string", description: "Telefone destino (E.164)." },
-        message: { type: "string", description: "Mensagem." }
-      },
-      required: ["phone", "message"],
-      additionalProperties: false
-    }
-  }
-] as const;
-
-export async function callMetaTool(
-  name: (typeof metaTools)[number]["name"],
-  args: Record<string, unknown>,
-  token: string,
-  overrides?: { pageId?: string; wabaId?: string }
-) {
+export async function getMetaTools() {
   await ensureSession();
-  const payload = { ...args, token } as Record<string, unknown>;
+
+  const payload = {
+    jsonrpc: "2.0",
+    id: buildRequestId("tools-list"),
+    method: "tools/list",
+    params: {}
+  };
+
+  const response = await sendRpc(payload);
+
+  const list = response?.result?.tools || [];
+
+  const tools = list.map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.inputSchema || { type: "object" }
+  }));
+
+  metaToolsCache = tools;
+  return tools;
+}
+
+/* ============================
+   PUBLIC API — CALL TOOL
+============================ */
+
+export async function callMetaTool(name, args, token, overrides) {
+  await ensureSession();
+
+  const payload = {
+    token,
+    ...(args || {})
+  };
+
   if (overrides?.pageId && payload.pageId === undefined) payload.pageId = overrides.pageId;
   if (overrides?.wabaId && payload.wabaId === undefined) payload.wabaId = overrides.wabaId;
 
@@ -296,32 +274,14 @@ export async function callMetaTool(
     }
   };
 
-  console.log(`[MCP] Chamando ferramenta ${name}`);
-  let response = await sendRpc(rpcPayload);
-  if (response?.error && isSessionError(response.error)) {
-    resetSession();
-    await ensureSession();
-    response = await sendRpc({ ...rpcPayload, id: buildRequestId(`${name}-retry`) });
-  }
+  const response = await sendRpc(rpcPayload);
 
-  if (response?.error) {
-    const message = response.error.message ?? "Erro desconhecido";
-    const code = response.error.code ?? "-";
-    console.error(`[MCP] Erro ao chamar ${name}: ${message}`);
-    throw new Error(`MCP error ${code}: ${message}`);
-  }
   return response?.result;
 }
 
-function raiseMcpError(errorObj: { message?: string; code?: number }) {
-  if (!errorObj) {
-    throw new Error("MCP error");
-  }
-  const err = new Error(errorObj.message ?? "MCP error");
-  (err as any).code = errorObj.code;
-  (err as any).mcpError = errorObj;
-  throw err;
-}
+/* ============================
+   PUBLIC HELPERS
+============================ */
 
 export async function initialize() {
   await ensureSession();

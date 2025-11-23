@@ -45,9 +45,21 @@ async function fetchConnections(slug: string): Promise<Conn[]> {
       return arr.map((c:any)=>({ id: `${c.googleads_id}:${c.account_id}`, label: c.nome || c.account_id, googleads_id: Number(c.googleads_id), account_id: String(c.account_id) }))
     }
     case 'meta': {
-      // usar status + projetos vinculados
-      const d:any = await j('/api/relatorio/facebook'); // pode falhar sem params; fallback vazio
-      return []
+      try {
+        const status = await apiClient.request<{ conectado: boolean }>('/api/facebook/status', { withAuth: true });
+        if (!status?.conectado) return [];
+      } catch {
+        return [];
+      }
+      try {
+        const contas = await apiClient.request<Array<{ id: string; nome?: string }>>('/api/meta/accounts', { withAuth: true });
+        if (Array.isArray(contas) && contas.length > 0) {
+          return contas.map((c) => ({ id: c.id, label: c.nome || c.id }));
+        }
+      } catch (e) {
+        console.warn('Falha ao carregar contas Meta:', e);
+      }
+      return [{ id: 'meta', label: 'Conta Meta conectada' }];
     }
     default:
       return []

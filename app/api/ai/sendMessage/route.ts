@@ -34,12 +34,15 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
+    const metaToken = typeof tokenRecord.token === "string" ? tokenRecord.token.trim() : "";
+    if (!metaToken) {
+      return NextResponse.json({ error: "token Meta Ads inválido" }, { status: 400 });
+    }
 
     const connectionWithToken = {
       ...connection,
-      token: tokenRecord.token,
+      token: metaToken,
     };
-
     const result = await llmClient.sendMessage({ message, connection: connectionWithToken });
     console.log("[/api/ai/sendMessage] Resposta final", result.output);
     return NextResponse.json({ output: result.output });

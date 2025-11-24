@@ -256,10 +256,15 @@ export async function getMetaTools() {
 export async function callMetaTool(name, args, token, overrides) {
   await ensureSession();
 
-  const payload = {
-    token,
-    ...(args || {})
-  };
+  // nunca deixe a IA sobrescrever o token real: remove token vindo nos args e injeta o válido
+  const cleanArgs = { ...(args || {}) };
+  if ("token" in cleanArgs) delete (cleanArgs as any).token;
+  const payload = { ...cleanArgs, token };
+  try {
+    const snippet = typeof token === "string" ? token.slice(-6) : String(token);
+    // log local para depuração de token usado por tool
+    console.log("[MCP client] calling tool", name, "token", snippet);
+  } catch {}
 
   if (overrides?.pageId && payload.pageId === undefined) payload.pageId = overrides.pageId;
   if (overrides?.wabaId && payload.wabaId === undefined) payload.wabaId = overrides.wabaId;

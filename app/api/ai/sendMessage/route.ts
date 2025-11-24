@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
     if (!metaToken) {
       return NextResponse.json({ error: "token Meta Ads inválido" }, { status: 400 });
     }
+    console.log("[/api/ai/sendMessage] Token sufixo", metaToken.slice(-6));
 
     const connectionWithToken = {
       ...connection,

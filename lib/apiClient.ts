@@ -29,9 +29,20 @@ export type AuthTokens = {
 // Resolve base da API em runtime: usa NEXT_PUBLIC_API_URL quando existir,
 // senão cai para window.location.origin (mesmo host do app Next).
 const BUILD_API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-function getApiBase(): string {
-  if (BUILD_API_URL) return BUILD_API_URL;
-  if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+function getApiBase(forPath: string): string {
+  if (BUILD_API_URL) {
+    // Se o caminho é de App Route (/api/ai/...), garantimos base com /app
+    if (forPath.startsWith("/api/ai/")) {
+      return BUILD_API_URL.endsWith("/app") ? BUILD_API_URL : `${BUILD_API_URL}/app`;
+    }
+    return BUILD_API_URL;
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    const origin = window.location.origin;
+    // Rotas Next (app router) vivem sob /app/api/...; rotas Express permanecem em /api/...
+    const isAppRoute = forPath.startsWith("/api/ai/");
+    return isAppRoute ? `${origin}/app` : origin;
+  }
   return "";
 }
 
@@ -108,7 +119,7 @@ async function request<T>(
     signal?: AbortSignal;
   } = {}
 ): Promise<T> {
-  const base = getApiBase();
+  const base = getApiBase(path.startsWith("/") ? path : `/${path}`);
   invariant(base, "API base não configurada");
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -194,7 +205,7 @@ export const apiClient = {
 
     // Espehlo seguro em cookie httpOnly via servidor Express
     try {
-      const base = getApiBase();
+      const base = getApiBase("/api/login");
       if (typeof window !== "undefined" && base) {
         await fetch(`${base}/auth/token-cookie`, {
           method: "POST",
@@ -246,7 +257,7 @@ export const apiClient = {
     setAccessToken(null);
     setRefreshToken(null);
     try {
-      const base = getApiBase();
+      const base = getApiBase("/auth/clear-cookie");
       if (typeof window !== "undefined" && base) {
         fetch(`${base}/auth/clear-cookie`, { method: "POST", credentials: "include" }).catch(() => {});
       }

@@ -19,7 +19,7 @@ function ScrollContainer({ children }: { children: React.ReactNode }) {
 
 export function ChatSidebar({ chats, selectedChatId, onNewChat, onSelectChat }: ChatSidebarProps) {
   return (
-    <div className="border-r bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 w-80 shrink-0 flex flex-col h-full">
+    <div className="border-r bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 w-64 shrink-0 flex flex-col h-full">
       <div className="p-4 flex items-center justify-between">
         <div className="text-sm font-medium">Conversas</div>
         <Button size="sm" onClick={onNewChat}>

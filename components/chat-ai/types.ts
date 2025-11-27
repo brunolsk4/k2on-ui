@@ -3,7 +3,7 @@ export type Role = "user" | "assistant";
 export interface Message {
   id: string;
   role: Role;
-  content: string;
+  content: any;
 }
 
 export interface ChatItem {
@@ -12,4 +12,3 @@ export interface ChatItem {
   preview: string;
   timestamp: Date;
 }
-

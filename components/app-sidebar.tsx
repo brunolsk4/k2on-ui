@@ -41,6 +41,9 @@ import {
 } from "@/components/ui/sidebar"
 import { IconLock } from "@tabler/icons-react"
 
+// Lista de usuários com acesso antecipado ao Assistente inteligente
+const AI_BETA_USERS = new Set(["80"])
+
 const data = {
   user: {
     name: "",
@@ -165,7 +168,7 @@ const data = {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [user, setUser] = React.useState(data.user)
-  const [aiLocked, setAiLocked] = React.useState(false)
+  const [aiLocked, setAiLocked] = React.useState(true)
   const [reportsLocked, setReportsLocked] = React.useState(false)
   const [consultoriaEnabled, setConsultoriaEnabled] = React.useState(false)
   React.useEffect(() => {
@@ -181,12 +184,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         })
         const role = String((me as any).role || '').toLowerCase()
         setConsultoriaEnabled(role === 'consultoria' || role === 'admin')
+        const userId = String((me as any).id ?? (me as any).userId ?? (me as any).usuarioId ?? "")
+        const allowedAiUser = AI_BETA_USERS.has(userId)
+        setAiLocked(!allowedAiUser)
       } catch {
         // mantém defaults
       }
     })()
     try {
-      setAiLocked(localStorage.getItem('k2on.lock.assistente_inteligente') === '1')
       setReportsLocked(localStorage.getItem('k2on.lock.reports') === '1')
     } catch {}
     return () => { cancel = true }

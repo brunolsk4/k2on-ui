@@ -7,6 +7,10 @@ import Protected from "@/components/protected";
 import * as React from "react";
 import { trackFeatureInterest } from "@/lib/featureInterest";
 import { Lock } from "lucide-react";
+import apiClient from "@/lib/apiClient";
+
+// Usuários autorizados a acessar o assistente em beta
+const AI_BETA_USERS = new Set(["80", "77"]);
 
 export default function Page() {
   const [locked, setLocked] = React.useState(true); // mantém bloqueio da página
@@ -15,6 +19,25 @@ export default function Page() {
   React.useEffect(() => {
     // registra abertura da página (click no menu)
     trackFeatureInterest("assistente_inteligente", "menu_open");
+  }, []);
+
+  React.useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const me = await apiClient.me();
+        if (cancel) return;
+        const userId = String((me as any).id ?? (me as any).userId ?? (me as any).usuarioId ?? "");
+        const allowed = AI_BETA_USERS.has(userId);
+        setLocked(!allowed);
+        setShowModal(!allowed);
+      } catch {
+        // mantém bloqueio padrão
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
   }, []);
 
   async function acceptBeta() {

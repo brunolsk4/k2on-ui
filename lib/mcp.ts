@@ -181,7 +181,12 @@ async function ensureSession() {
    TOOL CALL RPC
 ============================ */
 
-async function sendRpc(payload) {
+async function sendRpc(payload, retried = false) {
+  // garante sessão ativa antes de qualquer chamada
+  if (!sessionId) {
+    await ensureSession();
+  }
+
   if (!sessionId) throw new Error("Sessão MCP indisponível");
 
   const headers = {
@@ -194,13 +199,27 @@ async function sendRpc(payload) {
     headers["mcp-protocol-version"] = negotiatedProtocol;
   }
 
-  const response = await fetch(ENDPOINTS.toolCall, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
+  let response;
+  let raw = "";
 
-  const raw = await response.text();
+  try {
+    response = await fetch(ENDPOINTS.toolCall, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    raw = await response.text();
+  } catch (err) {
+    // tenta uma reconexão limpa apenas uma vez em caso de falha de rede
+    if (!retried) {
+      resetSession();
+      await ensureSession();
+      return sendRpc(payload, true);
+    }
+    throw err;
+  }
+
   let json = {};
 
   try {
@@ -211,6 +230,21 @@ async function sendRpc(payload) {
 
   if (!response.ok || json?.error) {
     const err = json?.error || { message: raw, code: response.status };
+    const msg = (err.message || "").toLowerCase();
+
+    // se a sessão morreu ou expirou, limpa e tenta uma vez reestabelecer
+    const sessionGone =
+      err.code === 440 ||
+      err.code === -32000 ||
+      msg.includes("session") ||
+      msg.includes("mcp");
+
+    if (!retried && sessionGone) {
+      resetSession();
+      await ensureSession();
+      return sendRpc(payload, true);
+    }
+
     const e = new Error(err.message || "Erro desconhecido");
     e.code = err.code;
     throw e;
@@ -249,12 +283,27 @@ export async function getMetaTools() {
   return tools;
 }
 
+async function ensureToolsCache() {
+  if (!metaToolsCache || !Array.isArray(metaToolsCache) || !metaToolsCache.length) {
+    await getMetaTools();
+  }
+}
+
 /* ============================
    PUBLIC API — CALL TOOL
 ============================ */
 
 export async function callMetaTool(name, args, token, overrides) {
   await ensureSession();
+  await ensureToolsCache();
+
+  // pré-checagem: evita chamar tool inexistente e devolve erro claro nos logs/resposta
+  const available = metaToolsCache?.find?.((t) => t.name === name);
+  if (!available) {
+    const msg = `Tool '${name}' não está registrada no MCP`;
+    console.error("[MCP client] tool não encontrada", { name, cacheSize: metaToolsCache?.length || 0 });
+    throw new Error(msg);
+  }
 
   // nunca deixe a IA sobrescrever o token real: remove token vindo nos args e injeta o válido
   const cleanArgs = { ...(args || {}) };
@@ -267,6 +316,10 @@ export async function callMetaTool(name, args, token, overrides) {
   } catch {}
 
   if (overrides?.pageId && payload.pageId === undefined) payload.pageId = overrides.pageId;
+  // Para Meta: se não vier adAccountId ou vier só o ID interno curto, force usar o pageId/conta_id real
+  if (overrides?.pageId && (!payload.adAccountId || String(payload.adAccountId).length < 8)) {
+    payload.adAccountId = overrides.pageId;
+  }
   if (overrides?.wabaId && payload.wabaId === undefined) payload.wabaId = overrides.wabaId;
 
   const rpcPayload = {
